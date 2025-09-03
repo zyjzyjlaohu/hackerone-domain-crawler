@@ -75,8 +75,8 @@ def extract_domains_from_html(html, url):
     log(f"找到 {len(program_links)} 个可能的项目链接")
     
     # 提取域名模式
-    domain_pattern = r'[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-    potential_domains = set(re.findall(domain_pattern, html))
+domain_pattern = r'[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+potential_domains = set(re.findall(domain_pattern, html))
     
     # 过滤掉HackerOne自己的域名和无效域名
     filtered_domains = {}
