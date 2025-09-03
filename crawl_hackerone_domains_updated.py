@@ -976,5 +976,122 @@ class MCPClient:
             self.logger.error(f"MCP调用异常: {e}")
             return None
 
-# 由于函数内容较多，这里省略了load_proxies_from_file, parse_arguments和主程序部分
-# 完整代码应包含这些部分
+def load_proxies_from_file(file_path):
+    """从文件加载代理列表"""
+    proxies = []
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    # 确保代理有正确的协议前缀
+                    if not line.startswith('http://') and not line.startswith('https://'):
+                        proxies.append({
+                            'http': f'http://{line}',
+                            'https': f'https://{line}'
+                        })
+                    else:
+                        proxies.append({
+                            'http': line,
+                            'https': line
+                        })
+        logger.info(f"从文件加载了 {len(proxies)} 个代理")
+        # 验证代理并过滤无效的
+        valid_proxies = []
+        for p in proxies:
+            try:
+                test_url = 'https://www.hackerone.com'
+                response = requests.get(test_url, proxies=p, timeout=10)
+                if response.status_code == 200:
+                    valid_proxies.append(p)
+                else:
+                    logger.warning(f"代理无效 (状态码: {response.status_code}): {p['http']}")
+            except Exception as e:
+                logger.warning(f"代理连接失败: {p['http']}, 错误: {e}")
+        if valid_proxies:
+            logger.info(f"验证通过了 {len(valid_proxies)}/{len(proxies)} 个代理")
+        else:
+            logger.warning("没有有效的代理可用")
+        return valid_proxies
+    except Exception as e:
+        logger.error(f"加载代理文件失败: {e}")
+        return []
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='HackerOne众测域名爬虫')
+    parser.add_argument('-o', '--output', default='hackerone_domains.csv', help='输出文件路径 (默认: hackerone_domains.csv)')
+    parser.add_argument('-p', '--use-proxy', action='store_true', help='使用代理服务器')
+    parser.add_argument('-f', '--proxy-file', help='包含代理列表的文件路径')
+    parser.add_argument('-d', '--delay', nargs=2, type=int, default=[1, 3], help='请求延迟范围 (默认: 1 3)')
+    parser.add_argument('-r', '--max-retries', type=int, default=3, help='最大重试次数 (默认: 3)')
+    parser.add_argument('-b', '--backoff-factor', type=float, default=0.3, help='退避因子 (默认: 0.3)')
+    parser.add_argument('-i', '--progress-interval', type=int, default=10, help='进度保存间隔 (默认: 10)')
+    parser.add_argument('-l', '--log-level', choices=LOG_LEVELS.keys(), default='INFO', help='日志级别 (默认: INFO)')
+    parser.add_argument('--use-crawl4ai', action='store_true', help='使用crawl4ai进行爬取')
+    parser.add_argument('--use-browser-use', action='store_true', help='在crawl4ai模式下使用浏览器界面（非无头模式）')
+    parser.add_argument('--browser-type', choices=['chrome', 'firefox', 'edge'], default='chrome', help='浏览器类型 (默认: chrome)')
+    parser.add_argument('--use-firecrawl', action='store_true', help='使用Firecrawl API替代进行爬取')
+    parser.add_argument('--firecrawl-api-key', help='Firecrawl API密钥')
+    
+    # Playwright相关参数
+    parser.add_argument('--playwright', action='store_true', help='使用Playwright进行爬取')
+    parser.add_argument('--playwright-login', action='store_true', help='使用Playwright模拟登录HackerOne')
+    parser.add_argument('-u', '--username', help='HackerOne用户名 (用于Playwright登录)')
+    parser.add_argument('--password', help='HackerOne密码 (用于Playwright登录)')
+    
+    # MCP相关参数
+    parser.add_argument('--use-mcp-playwright', action='store_true', help='使用MCP服务器调用Playwright')
+    parser.add_argument('--use-mcp-firecrawl', action='store_true', help='使用MCP服务器调用Firecrawl')
+    parser.add_argument('--mcp-host', default='localhost', help='MCP服务器主机地址 (默认: localhost)')
+    parser.add_argument('--mcp-port', type=int, default=8000, help='MCP服务器端口 (默认: 8000)')
+    
+    args = parser.parse_args()
+    
+    # 验证Playwright登录参数
+    if args.playwright_login:
+        if not args.username or not args.password:
+            parser.error('--playwright-login时，必须同时提供--username和--password参数')
+    
+    return args
+
+if __name__ == '__main__':
+    import sys
+    args = parse_arguments()
+
+    # 加载代理列表
+    proxy_list = None
+    if args.use_proxy:
+        if args.proxy_file:
+            proxy_list = load_proxies_from_file(args.proxy_file)
+        else:
+            proxy_list = PROXIES
+            if not proxy_list:
+                logger.warning('未指定代理文件且默认代理列表为空')
+    
+    # 创建爬虫实例
+    scraper = HackerOneScraper(
+        output_file=args.output,
+        use_proxy=args.use_proxy,
+        proxy_list=proxy_list,
+        request_delay=tuple(args.delay),
+        max_retries=args.max_retries,
+        backoff_factor=args.backoff_factor,
+        progress_interval=args.progress_interval,
+        log_level=LOG_LEVELS[args.log_level],
+        use_crawl4ai=args.use_crawl4ai,
+        use_browser_use=args.use_browser_use,
+        browser_type=args.browser_type,
+        use_firecrawl=args.use_firecrawl,
+        firecrawl_api_key=args.firecrawl_api_key,
+        use_playwright=args.playwright,
+        playwright_login=args.playwright_login,
+        username=args.username,
+        password=args.password,
+        use_mcp_playwright=args.use_mcp_playwright,
+        use_mcp_firecrawl=args.use_mcp_firecrawl,
+        mcp_host=args.mcp_host,
+        mcp_port=args.mcp_port
+    )
+    
+    # 运行爬虫
+    scraper.run()
